@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>120 FPS Toolkit</title>
+    
+    <!-- Tailwind CSS for modern dark UI styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FFmpeg.wasm Core Library -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+
+    <!-- Inline CSS for background gradient -->
+    <style>
+        body {
+            background-color: #070a13;
+            background-image: radial-gradient(circle at 50% 0%, #101b35 0%, #070a13 70%);
+            color: #ffffff;
+            font-family: system-ui, -apple-system, sans-serif;
+        }
+    </style>
+
+    <!-- Inline GitHub Pages WebAssembly Fixer (Service Worker) -->
+    <script>
+        if (typeof window !== "undefined" && window.crossOriginIsolated === false) {
+            const code = `
+                self.addEventListener("install", () => self.skipWaiting());
+                self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
+                self.addEventListener("fetch", (e) => {
+                    if (e.request.cache === "only-if-cached" && e.request.mode !== "same-origin") return;
+                    e.respondWith(
+                        fetch(e.request).then((response) => {
+                            if (response.status === 0) return response;
+                            const newHeaders = new Headers(response.headers);
+                            newHeaders.set("Cross-Origin-Opener-Policy", "same-origin");
+                            newHeaders.set("Cross-Origin-Embedder-Policy", "require-corp");
+                            return new Response(response.body, {
+                                status: response.status,
+                                statusText: response.statusText,
+                                headers: newHeaders,
+                            });
+                        }).catch((e) => console.error(e))
+                    );
+                });
+            `;
+            const blob = new Blob([code], { type: "text/javascript" });
+            navigator.serviceWorker.register(URL.createObjectURL(blob)).then((reg) => {
+                reg.addEventListener("updatefound", () => window.location.reload());
+                if (reg.active) window.location.reload();
+            });
+        }
+    </script>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-5">
+
+    <!-- Main Card Container -->
+    <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+        <h1 class="text-xl font-bold text-center text-cyan-400 mb-6 tracking-wider">FPS TOOLKIT</h1>
+
+        <!-- Drag & Drop Upload Box -->
+        <div id="dropZone" class="border-2 border-dashed border-slate-700 hover:border-cyan-500 rounded-2xl p-8 text-center cursor-pointer transition-all relative">
+            <input type="file" id="videoUploader" accept="video/*" class="absolute inset-0 opacity-0 cursor-pointer">
+            <div class="text-4xl mb-3">📤</div>
+            <p class="font-semibold text-lg" id="fileLabel">Drag & drop your footage</p>
+            <p class="text-xs text-slate-400 mt-1">or browse files · MP4, MOV, WEBM</p>
+        </div>
+
+        <!-- Selected File Status Info -->
+        <div id="fileInfo" class="hidden mt-4 p-3 bg-slate-950 border border-slate-800 rounded-xl flex items-center justify-between text-xs">
+            <span id="fileName" class="text-slate-300 truncate max-w-[200px]">video.mp4</span>
+            <span class="bg-cyan-500/10 text-cyan-400 px-2 py-0.5 rounded font-mono">120 FPS Mode</span>
+        </div>
+
+        <!-- Progress Tracking Section -->
+        <div id="progressSection" class="hidden mt-6">
+            <div class="flex justify-between text-xs mb-2">
+                <span id="statusText" class="text-slate-400 animate-pulse">Loading Engine...</span>
+                <span id="percentageText" class="text-cyan-400 font-bold font-mono">0%</span>
+            </div>
+            <div class="w-full bg-slate-950 h-2 rounded-full overflow-hidden border border-slate-800">
+                <div id="progressBar" class="bg-gradient-to-r from-cyan-500 to-emerald-400 h-full w-0 transition-all duration-300"></div>
+            </div>
+        </div>
+
+        <!-- Dynamic Render Action Button -->
+        <button id="renderBtn" disabled class="w-full mt-6 py-4 bg-slate-800 text-slate-500 font-bold text-lg rounded-2xl shadow-lg cursor-not-allowed transition-all">
+            Select a Video First
+        </button>
+    </div>
+
+    <!-- Core JavaScript logic for video processing -->
+    <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ log: true });
+
+        const uploader = document.getElementById('videoUploader');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const renderBtn = document.getElementById('renderBtn');
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const percentageText = document.getElementById('percentageText');
+        const statusText = document.getElementById('statusText');
+
+        uploader.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                fileName.textContent = file.name;
+                fileInfo.classList.remove('hidden');
+                
+                renderBtn.disabled = false;
+                renderBtn.className = "w-full mt-6 py-4 bg-emerald-400 hover:bg-emerald-500 text-slate-950 font-bold text-lg rounded-2xl shadow-lg shadow-emerald-400/20 transition-all cursor-pointer";
+                renderBtn.textContent = "Render 120 FPS";
+            }
+        });
+
+        renderBtn.addEventListener('click', async () => {
+            if (uploader.files.length === 0) return;
+            const file = uploader.files[0];
+
+            renderBtn.disabled = true;
+            renderBtn.className = "w-full mt-6 py-4 bg-slate-800 text-slate-500 font-bold text-lg rounded-2xl cursor-not-allowed";
+            progressSection.classList.remove('hidden');
+
+            try {
+                if (!ffmpeg.isLoaded()) {
+                    statusText.textContent = "Initializing local engine...";
+                    await ffmpeg.load();
+                }
+
+                ffmpeg.setProgress(({ ratio }) => {
+                    const percent = Math.max(0, Math.min(100, Math.round(ratio * 100)));
+                    progressBar.style.width = `${percent}%`;
+                    percentageText.textContent = `${percent}%`;
+                    statusText.textContent = percent === 100 ? "Finalizing file..." : "Encoding frames to 120 FPS...";
+                });
+
+                statusText.textContent = "Reading file into memory...";
+                ffmpeg.FS('writeFile', 'input_video', await fetchFile(file));
+
+                statusText.textContent = "Processing... (This takes a few moments)";
+                
+                await ffmpeg.run(
+                    '-i', 'input_video',
+                    '-r', '120',
+                    '-preset', 'ultrafast',
+                    '-vcodec', 'libx264',
+                    '-crf', '20', 
+                    'output_120.mp4'
+                );
+
+                statusText.textContent = "Saving to your device!";
+                const data = ffmpeg.FS('readFile', 'output_120.mp4');
+                const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+                const url = URL.createObjectURL(videoBlob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `120fps_${file.name}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+
+                statusText.textContent = "Complete!";
+                renderBtn.disabled = false;
+                renderBtn.className = "w-full mt-6 py-4 bg-emerald-400 hover:bg-emerald-500 text-slate-950 font-bold text-lg rounded-2xl shadow-lg";
+                renderBtn.textContent = "Render Again";
+
+            } catch (error) {
+                console.error(error);
+                statusText.textContent = "Error occurred during rendering.";
+                alert("Something went wrong! Check file format.");
+            }
+        });
+    </script>
+</body>
+</html>
