@@ -181,7 +181,7 @@
         </div>
     </main>
 
-    <!-- JavaScript Functional Core Core Engine Logic -->
+    <!-- JavaScript Functional Core Engine Logic -->
     <script>
         const { createFFmpeg, fetchFile } = FFmpeg;
         const ffmpeg = createFFmpeg({ log: true });
@@ -227,7 +227,6 @@
             progressSection.classList.remove('hidden');
             downloadBox.classList.add('hidden');
 
-            // Reset flags style
             [fLoad, fProc, fFin, fComp].forEach(el => el.className = "p-1 rounded bg-slate-800 text-slate-400");
 
             try {
@@ -245,23 +244,26 @@
                     progressBar.style.width = `${percent}%`;
                     percentageText.textContent = `${percent}%`;
                     
-                    if (ratio >= 0.98) {
+                    if (ratio >= 0.95) {
                         fProc.className = "p-1 rounded bg-slate-800 text-slate-500";
                         fFin.className = "p-1 rounded bg-pink-500 text-white font-bold";
                         statusText.textContent = "Finalizing data stream blocks...";
                     } else {
-                        statusText.textContent = "Processing layout pipelines locally...";
+                        statusText.textContent = "Injecting timing pass interpolation...";
                     }
                 });
 
                 ffmpeg.FS('writeFile', 'input_raw', await fetchFile(file));
 
+                // FIXED PIPELINE: High compatibility slow-motion stretch algorithm that avoids low-memory crashes
+                // Stretches time using minterpolate for smooth frame generation & copy fallback
                 await ffmpeg.run(
                     '-i', 'input_raw',
-                    '-r', '120',
+                    '-filter_complex', 'minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:vsbmc=1,setpts=2.0*PTS',
+                    '-c:v', 'libx264',
                     '-preset', 'ultrafast',
-                    '-vcodec', 'libx264',
-                    '-crf', '22', 
+                    '-crf', '23',
+                    '-b:a', '128k',
                     'output_render.mp4'
                 );
 
@@ -280,8 +282,26 @@
 
             } catch (error) {
                 console.error(error);
-                statusText.textContent = "Execution collapsed.";
-                alert("Render failed! Try shorter clips or regular MP4 formats.");
+                statusText.textContent = "Switching to Safe Smooth Pipeline...";
+                
+                // Fallback option if device strictly blocks motion vector computation
+                try {
+                    await ffmpeg.run(
+                        '-i', 'input_raw',
+                        '-filter:v', 'setpts=2.0*PTS',
+                        '-r', '120',
+                        '-c:v', 'libx264',
+                        '-preset', 'ultrafast',
+                        'output_render.mp4'
+                    );
+                    const data = ffmpeg.FS('readFile', 'output_render.mp4');
+                    const videoBlob = new Blob([data.buffer], { type: 'video/mp4' });
+                    generatedVideoUrl = URL.createObjectURL(videoBlob);
+                    downloadBox.classList.remove('hidden');
+                } catch (fallbackError) {
+                    statusText.textContent = "Crash prevented.";
+                    alert("Render failed. Please use a smaller/shorter clip.");
+                }
             }
         });
 
